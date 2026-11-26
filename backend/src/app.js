@@ -16,7 +16,25 @@ import { authenticate } from "./middleware/auth.middleware.js";
 
 const app = express();
 
-app.use(cors({ origin: env.frontendUrl }));
+// CORS configuration for local development and production.
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests without an Origin header (e.g. Postman).
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (env.frontendUrls.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
 // Public health endpoint.

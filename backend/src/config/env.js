@@ -20,22 +20,37 @@ for (const variable of requiredVariables) {
   }
 }
 
+const port = Number(process.env.PORT);
+
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("PORT must be a valid port number.");
+}
+
+if (process.env.JWT_SECRET.length < 32) {
+  throw new Error("JWT_SECRET must contain at least 32 characters.");
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
 
-  port: Number(process.env.PORT),
+  port,
 
   databaseUrl: process.env.DATABASE_URL,
 
-  frontendUrl:
-    process.env.FRONTEND_URL || "http://localhost:5173",
+  frontendUrls: (
+    process.env.FRONTEND_URL || "http://localhost:5173"
+  )
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean),
 
   // Kafka configuration
   kafkaBrokers: (
     process.env.KAFKA_BROKERS || "localhost:9092"
   )
     .split(",")
-    .map((broker) => broker.trim()),
+    .map((broker) => broker.trim())
+    .filter(Boolean),
 
   kafkaClientId:
     process.env.KAFKA_CLIENT_ID || "inventory-backend",
