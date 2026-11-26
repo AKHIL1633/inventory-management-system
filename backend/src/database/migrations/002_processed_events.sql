@@ -1,0 +1,8 @@
+
+CREATE TABLE IF NOT EXISTS processed_events (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    event_id UUID NOT NULL UNIQUE,
+    event_type VARCHAR(30) NOT NULL,
+    product_id BIGINT NOT NULL REFERENCES products(id),
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
