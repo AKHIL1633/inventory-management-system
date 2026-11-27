@@ -6,11 +6,7 @@ dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
 });
 
-const requiredVariables = [
-  "PORT",
-  "DATABASE_URL",
-  "JWT_SECRET",
-];
+const requiredVariables = ["PORT", "DATABASE_URL", "JWT_SECRET"];
 
 for (const variable of requiredVariables) {
   if (!process.env[variable]) {
@@ -34,7 +30,6 @@ export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
 
   port,
-
   databaseUrl: process.env.DATABASE_URL,
 
   frontendUrls: (
@@ -61,8 +56,16 @@ export const env = {
   kafkaGroupId:
     process.env.KAFKA_GROUP_ID || "inventory-consumer-group",
 
+  kafkaSaslUsername: process.env.KAFKA_SASL_USERNAME || "",
+  kafkaSaslPassword: process.env.KAFKA_SASL_PASSWORD || "",
+
+  kafkaSaslMechanism: (
+    process.env.KAFKA_SASL_MECHANISM || "scram-sha-256"
+  ).toLowerCase(),
+
+  kafkaSsl: process.env.KAFKA_SSL === "true",
+
   // Authentication configuration
   jwtSecret: process.env.JWT_SECRET,
-
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "1d",
 };
