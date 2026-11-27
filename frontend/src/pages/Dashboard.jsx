@@ -10,7 +10,6 @@ const Dashboard = () => {
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Fetch the latest dashboard metrics.
   const fetchSummary = useCallback(async () => {
     try {
       const response = await api.get("/dashboard/summary");
@@ -27,100 +26,129 @@ const Dashboard = () => {
     }
   }, []);
 
-  // Load initial data and establish the authenticated SSE connection.
   useEffect(() => {
     const controller = new AbortController();
 
-    const connectToRealtimeEvents = async () => {
-      try {
-        await fetchSummary();
+    const waitBeforeReconnect = () =>
+      new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 3000);
 
-        const token = localStorage.getItem("inventory_token");
-
-        if (!token) {
-          throw new Error("Authentication token not found.");
-        }
-
-        const response = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}/realtime/events`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "text/event-stream",
-            },
-            signal: controller.signal,
-          }
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timeout);
+            resolve();
+          },
+          { once: true }
         );
+      });
 
-        if (!response.ok) {
-          throw new Error(
-            `Live connection failed with status ${response.status}`
+    const connectToRealtimeEvents = async () => {
+      await fetchSummary();
+
+      while (!controller.signal.aborted) {
+        setConnectionStatus("connecting");
+
+        try {
+          const token = localStorage.getItem("inventory_token");
+
+          if (!token) {
+            throw new Error("Authentication token not found.");
+          }
+
+          const response = await fetch(
+            `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}/realtime/events`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "text/event-stream",
+              },
+              signal: controller.signal,
+              cache: "no-cache",
+            }
           );
-        }
 
-        if (!response.body) {
-          throw new Error("Streaming response is not supported.");
-        }
+          if (!response.ok) {
+            throw new Error(
+              `Live connection failed with status ${response.status}`
+            );
+          }
 
-        setConnectionStatus("connected");
+          if (!response.body) {
+            throw new Error("Streaming response is not supported.");
+          }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
 
-        let buffer = "";
+          let buffer = "";
+          let confirmedConnection = false;
 
-        while (!controller.signal.aborted) {
-          const { value, done } = await reader.read();
+          try {
+            while (!controller.signal.aborted) {
+              const { value, done } = await reader.read();
 
-          if (done) {
+              if (done) {
+                break;
+              }
+
+              buffer += decoder.decode(value, { stream: true });
+
+              const messages = buffer.split(/\r?\n\r?\n/);
+              buffer = messages.pop() || "";
+
+              for (const message of messages) {
+                const dataLine = message
+                  .split(/\r?\n/)
+                  .find((line) => line.startsWith("data:"));
+
+                if (!dataLine) {
+                  continue;
+                }
+
+                try {
+                  const event = JSON.parse(
+                    dataLine.substring(5).trim()
+                  );
+
+                  if (event.type === "connected") {
+                    confirmedConnection = true;
+                    setConnectionStatus("connected");
+                    console.log("Live dashboard connection established");
+                  }
+
+                  if (event.type === "inventory.updated") {
+                    console.log("Inventory update received:", event);
+                    await fetchSummary();
+                  }
+                } catch (parseError) {
+                  console.error(
+                    "Unable to process SSE message:",
+                    parseError
+                  );
+                }
+              }
+            }
+          } finally {
+            await reader.cancel().catch(() => {});
+          }
+
+          if (!controller.signal.aborted) {
+            console.warn("Live dashboard stream closed. Reconnecting...");
+            setConnectionStatus("disconnected");
+          }
+        } catch (err) {
+          if (err.name === "AbortError") {
             break;
           }
 
-          buffer += decoder.decode(value, { stream: true });
-
-          const messages = buffer.split("\n\n");
-          buffer = messages.pop() || "";
-
-          for (const message of messages) {
-            const dataLine = message
-              .split("\n")
-              .find((line) => line.startsWith("data:"));
-
-            if (!dataLine) {
-              continue;
-            }
-
-            try {
-              const event = JSON.parse(
-                dataLine.substring(5).trim()
-              );
-
-              if (event.type === "connected") {
-                console.log("Live dashboard connection established");
-              }
-
-              if (event.type === "inventory.updated") {
-                console.log("Inventory update received:", event);
-
-                await fetchSummary();
-              }
-            } catch (parseError) {
-              console.error(
-                "Unable to process SSE message:",
-                parseError
-              );
-            }
-          }
+          console.error("Realtime connection error:", err);
+          setConnectionStatus("disconnected");
         }
 
         if (!controller.signal.aborted) {
-          setConnectionStatus("disconnected");
-        }
-      } catch (err) {
-        if (err.name !== "AbortError") {
-          console.error("Realtime connection error:", err);
-          setConnectionStatus("disconnected");
+          await waitBeforeReconnect();
         }
       }
     };
@@ -133,14 +161,8 @@ const Dashboard = () => {
   }, [fetchSummary]);
 
   const metrics = [
-    {
-      title: "Total Products",
-      value: summary?.total_products,
-    },
-    {
-      title: "Total Stock",
-      value: summary?.total_stock,
-    },
+    { title: "Total Products", value: summary?.total_products },
+    { title: "Total Stock", value: summary?.total_stock },
     {
       title: "Inventory Value",
       value: summary?.inventory_value,
